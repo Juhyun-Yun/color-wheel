@@ -16,8 +16,7 @@ body {
     min-height: 100vh;
     display: flex;
     justify-content: center;
-    align-items: flex-start;
-    padding-top: 20px;
+    align-items: center;
     overflow: hidden;
 }
 
@@ -291,7 +290,7 @@ header {
     display: flex;
     align-items: center;
     justify-content: flex-start;
-    margin-left: -30px;
+    margin-left: 10px;
 }
 
 .mixing-panel {
@@ -368,6 +367,9 @@ header {
 
 .creation-controls button {
     flex: 1;
+    padding: 18px 30px;
+    font-size: 1.15rem;
+    border-radius: 18px;
 }
 
 .canvas-container {
