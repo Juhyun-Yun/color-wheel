@@ -1,4 +1,4 @@
-const GAS_URL = "https://script.google.com/macros/s/AKfycbzvS4LkO78rmi9Lm2p9Zpeak8OsUg0r7EdtGKZNKiYKL7semPhhvkw4VhFYp9d6oNLB3g/exec";
+const GAS_URL = "https://script.google.com/macros/s/AKfycbxj09j_ojuZynR0mJW1GX3gTpoyg7tDKiDNEXnDsU-fMAsuxf9pWAf8klboajgWX8tJrw/exec";
 
 const colorData = [
     { name: "빨강", hex: "#FF3B30", feeling: "열정이 느껴져요.", keywords: ["열정", "용기"] },
@@ -19,8 +19,8 @@ const mixingRatios = {
     "파랑": { R: 0, Y: 0, B: 1 }, "남색": { R: 1, Y: 0, B: 2 }, "보라": { R: 1, Y: 0, B: 1 }, "자주": { R: 2, Y: 0, B: 1 }
 };
 
-const state = { 
-    isDrawing: false, paintColor: '#FF3B30', currentTheme: 'energy', canvasMode: 'blank', 
+const state = {
+    isDrawing: false, paintColor: '#FF3B30', currentTheme: 'energy', canvasMode: 'blank',
     creationWheelState: new Array(10).fill(null), currentMixture: { R: 0, Y: 0, B: 0 },
     selectedColorFromPool: null
 };
@@ -81,7 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function startPaint(e) {
         state.isDrawing = true;
-        const {x, y} = getPos(e);
+        const { x, y } = getPos(e);
         ctx.beginPath();
         ctx.moveTo(x, y);
         ctx.lineWidth = brushInput.value;
@@ -94,7 +94,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function movePaint(e) {
         if (!state.isDrawing) return;
-        const {x, y} = getPos(e);
+        const { x, y } = getPos(e);
         ctx.lineTo(x, y);
         ctx.stroke();
         if (e.cancelable) e.preventDefault();
@@ -108,8 +108,8 @@ document.addEventListener('DOMContentLoaded', () => {
     canvas.onmousedown = startPaint;
     window.addEventListener('mousemove', movePaint);
     window.addEventListener('mouseup', stopPaint);
-    canvas.addEventListener('touchstart', (e) => { startPaint(e); if(e.cancelable) e.preventDefault(); }, {passive: false});
-    window.addEventListener('touchmove', movePaint, {passive: false});
+    canvas.addEventListener('touchstart', (e) => { startPaint(e); if (e.cancelable) e.preventDefault(); }, { passive: false });
+    window.addEventListener('touchmove', movePaint, { passive: false });
     window.addEventListener('touchend', stopPaint);
 
     // --- Student Names Fetch ---
@@ -239,7 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (state.selectedColorFromPool && state.selectedColorFromPool.name === colorData[i].name) {
                     slot.setAttribute('fill', state.selectedColorFromPool.hex);
                     state.creationWheelState[i] = state.selectedColorFromPool.name;
-                    state.currentMixture = {R:0,Y:0,B:0};
+                    state.currentMixture = { R: 0, Y: 0, B: 0 };
                     state.selectedColorFromPool = null;
                     updateBowl();
                 }
@@ -252,11 +252,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderPool() {
         const pool = document.getElementById('primary-pool');
         pool.innerHTML = '';
-        [{id:'R',n:'빨강',c:'#FF3B30'},{id:'Y',n:'노랑',c:'#FFCC00'},{id:'B',n:'파랑',c:'#007AFF'}].forEach(p => {
+        [{ id: 'R', n: '빨강', c: '#FF3B30' }, { id: 'Y', n: '노랑', c: '#FFCC00' }, { id: 'B', n: '파랑', c: '#007AFF' }].forEach(p => {
             const d = document.createElement('div');
             d.className = 'primary-piece'; d.style.backgroundColor = p.c; d.innerText = p.n;
             d.onclick = () => {
-                if (state.currentMixture.R+state.currentMixture.Y+state.currentMixture.B < 5) {
+                if (state.currentMixture.R + state.currentMixture.Y + state.currentMixture.B < 5) {
                     state.currentMixture[p.id]++;
                     updateBowl();
                 }
@@ -266,8 +266,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function updateBowl() {
-        const {R,Y,B} = state.currentMixture;
-        const total = R+Y+B;
+        const { R, Y, B } = state.currentMixture;
+        const total = R + Y + B;
         const resP = document.getElementById('mix-result-preview');
         const resN = document.getElementById('mix-result-name');
         const ratioDisplay = document.getElementById('mix-ratio-display');
@@ -279,15 +279,15 @@ document.addEventListener('DOMContentLoaded', () => {
         let matched = "";
         for (let n in mixingRatios) {
             const t = mixingRatios[n];
-            if (t.R===R && t.Y===Y && t.B===B) { matched = n; break; }
+            if (t.R === R && t.Y === Y && t.B === B) { matched = n; break; }
         }
-        const hex = matched ? colorData.find(c=>c.name===matched).hex : `rgb(${Math.round(255*R/total+255*Y/total)},${Math.round(59*R/total+204*Y/total+122*B/total)},${Math.round(48*R/total+255*B/total)})`;
+        const hex = matched ? colorData.find(c => c.name === matched).hex : `rgb(${Math.round(255 * R / total + 255 * Y / total)},${Math.round(59 * R / total + 204 * Y / total + 122 * B / total)},${Math.round(48 * R / total + 255 * B / total)})`;
         document.getElementById('bowl-content').style.backgroundColor = hex;
         resP.style.backgroundColor = hex; resN.innerText = matched || '섞는 중...';
         state.selectedColorFromPool = { name: matched, hex: hex };
     }
     document.getElementById('clear-bowl').onclick = () => {
-        state.currentMixture = {R:0,Y:0,B:0}; state.selectedColorFromPool = null; updateBowl();
+        state.currentMixture = { R: 0, Y: 0, B: 0 }; state.selectedColorFromPool = null; updateBowl();
     };
     document.getElementById('check-creation').onclick = () => {
         if (state.creationWheelState.every((s, i) => s === colorData[i].name)) confetti();
@@ -305,13 +305,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const activeMode = document.getElementById(`bg-mode-${state.canvasMode}`);
         if (activeMode) activeMode.classList.add('active');
         const exImg = document.getElementById('theme-example-img');
-        if (state.currentTheme === 'spring') exImg.src = 'calm.png'; 
+        if (state.currentTheme === 'spring') exImg.src = 'calm.png';
         else if (state.currentTheme === 'energy') exImg.src = 'energy_ex.png';
         else exImg.src = 'cool_ex.png';
         const palette = document.getElementById('restricted-palette'); palette.innerHTML = '';
-        let filter = state.currentTheme === 'energy' ? ["자주", "빨강", "주황", "노랑"] : 
-                     state.currentTheme === 'spring' ? ["청록", "초록", "연두", "노랑"] : 
-                     ["청록", "파랑", "남색", "보라"];
+        let filter = state.currentTheme === 'energy' ? ["자주", "빨강", "주황", "노랑"] :
+            state.currentTheme === 'spring' ? ["청록", "초록", "연두", "노랑"] :
+                ["청록", "파랑", "남색", "보라"];
         colorData.filter(c => filter.includes(c.name)).forEach(c => {
             const d = document.createElement('div'); d.className = 'palette-color'; d.style.backgroundColor = c.hex;
             if (state.paintColor === c.hex) d.classList.add('active');
@@ -327,18 +327,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function drawTree() {
         ctx.strokeStyle = "rgba(0,0,0,0.8)"; ctx.lineWidth = 6; ctx.lineCap = "round";
-        const w = 1200, h = 800, cx = w/2, cy = h*0.9;
-        ctx.beginPath(); ctx.moveTo(cx-30, cy); ctx.lineTo(cx-15, cy-200); ctx.lineTo(cx+15, cy-200); ctx.lineTo(cx+30, cy); ctx.closePath(); ctx.stroke();
+        const w = 1200, h = 800, cx = w / 2, cy = h * 0.9;
+        ctx.beginPath(); ctx.moveTo(cx - 30, cy); ctx.lineTo(cx - 15, cy - 200); ctx.lineTo(cx + 15, cy - 200); ctx.lineTo(cx + 30, cy); ctx.closePath(); ctx.stroke();
         const pts = [
-            {x:cx,y:cy-200,br:[{x:cx-160,y:cy-350,cs:[90,60,30]},{x:cx+160,y:cy-350,cs:[100,70,35]},{x:cx,y:cy-480,cs:[110,75,40]}]},
-            {x:cx-15,y:cy-110,br:[{x:cx-300,y:cy-180,cs:[75,45]},{x:cx-250,y:cy-50,cs:[60,35]}]},
-            {x:cx+15,y:cy-130,br:[{x:cx+280,y:cy-250,cs:[85,50]},{x:cx+220,y:cy-70,cs:[65,40]}]}
+            { x: cx, y: cy - 200, br: [{ x: cx - 160, y: cy - 350, cs: [90, 60, 30] }, { x: cx + 160, y: cy - 350, cs: [100, 70, 35] }, { x: cx, y: cy - 480, cs: [110, 75, 40] }] },
+            { x: cx - 15, y: cy - 110, br: [{ x: cx - 300, y: cy - 180, cs: [75, 45] }, { x: cx - 250, y: cy - 50, cs: [60, 35] }] },
+            { x: cx + 15, y: cy - 130, br: [{ x: cx + 280, y: cy - 250, cs: [85, 50] }, { x: cx + 220, y: cy - 70, cs: [65, 40] }] }
         ];
         pts.forEach(p => p.br.forEach(b => {
-            ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(b.x,b.y); ctx.stroke();
-            b.cs.forEach(r => { ctx.beginPath(); ctx.arc(b.x,b.y,r,0,Math.PI*2); ctx.stroke(); });
+            ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+            b.cs.forEach(r => { ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, Math.PI * 2); ctx.stroke(); });
         }));
-        ctx.beginPath(); ctx.moveTo(0,h*0.95); ctx.bezierCurveTo(w*0.3,h*0.85,w*0.7,h*1,w,h*0.95); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, h * 0.95); ctx.bezierCurveTo(w * 0.3, h * 0.85, w * 0.7, h * 1, w, h * 0.95); ctx.stroke();
     }
 
     document.getElementById('clear-canvas').onclick = () => {
