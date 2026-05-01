@@ -76,7 +76,7 @@ body {
 
 .app-container {
     width: 1270px;
-    height: 850px;
+    height: 800px;
     background: rgba(255, 255, 255, 0.7);
     border-radius: 40px;
     padding: 20px 30px 30px;
@@ -86,6 +86,7 @@ body {
     transform-origin: center center;
     display: flex;
     flex-direction: column;
+    margin-bottom: 60px;
 }
 
 .hidden { display: none !important; }
@@ -194,7 +195,9 @@ header {
     grid-template-columns: 1.2fr 1fr;
     gap: 40px;
     align-items: center;
+    align-content: center;
     height: 100%;
+    padding-top: 30px;
 }
 
 .wheel-section {
@@ -284,11 +287,19 @@ header {
     flex: 1;
 }
 
+.target-wheel-container {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    margin-left: -30px;
+}
+
 .mixing-panel {
     background: white;
     padding: 30px;
     border-radius: 30px;
     box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+    margin-top: 60px;
 }
 
 .primary-pool {
@@ -417,6 +428,7 @@ header {
     background: white;
     padding: 15px 25px;
     border-radius: 20px;
+    margin-top: 57px;
     margin-bottom: 15px;
     align-items: center;
     box-shadow: 0 5px 20px rgba(0,0,0,0.05);

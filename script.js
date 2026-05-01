@@ -357,7 +357,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     function handleResize() {
-        const scale = Math.min((window.innerWidth - 60) / 1520, (window.innerHeight - 60) / 870, 1);
+        const scale = Math.min((window.innerWidth - 60) / 1520, (window.innerHeight - 60) / 820, 1);
         if (mainApp && !mainApp.classList.contains('hidden')) mainApp.style.transform = `scale(${scale})`;
     }
     window.onresize = handleResize;
