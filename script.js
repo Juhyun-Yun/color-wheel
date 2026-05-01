@@ -357,10 +357,11 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     function handleResize() {
-        const scale = Math.min((window.innerWidth - 40) / 1450, (window.innerHeight - 40) / 850, 1);
+        const scale = Math.min((window.innerWidth - 60) / 1520, (window.innerHeight - 60) / 870, 1);
         if (mainApp && !mainApp.classList.contains('hidden')) mainApp.style.transform = `scale(${scale})`;
     }
     window.onresize = handleResize;
+    window.addEventListener('load', handleResize);
 
     function createSlicePath(cx, cy, r, startA, endA) {
         const x1 = cx + r * Math.cos(Math.PI * startA / 180); const y1 = cy + r * Math.sin(Math.PI * startA / 180);
