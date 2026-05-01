@@ -1,0 +1,14 @@
+<svg width="400" height="400" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <!-- Large Mosaic Sun -->
+  <circle cx="200" cy="200" r="50" fill="none" stroke="black" stroke-width="5" />
+  
+  <!-- Large Rectangular Rays -->
+  <rect x="180" y="50" width="40" height="60" fill="none" stroke="black" stroke-width="5" transform="rotate(0, 200, 200)" />
+  <rect x="180" y="50" width="40" height="60" fill="none" stroke="black" stroke-width="5" transform="rotate(45, 200, 200)" />
+  <rect x="180" y="50" width="40" height="60" fill="none" stroke="black" stroke-width="5" transform="rotate(90, 200, 200)" />
+  <rect x="180" y="50" width="40" height="60" fill="none" stroke="black" stroke-width="5" transform="rotate(135, 200, 200)" />
+  <rect x="180" y="50" width="40" height="60" fill="none" stroke="black" stroke-width="5" transform="rotate(180, 200, 200)" />
+  <rect x="180" y="50" width="40" height="60" fill="none" stroke="black" stroke-width="5" transform="rotate(225, 200, 200)" />
+  <rect x="180" y="50" width="40" height="60" fill="none" stroke="black" stroke-width="5" transform="rotate(270, 200, 200)" />
+  <rect x="180" y="50" width="40" height="60" fill="none" stroke="black" stroke-width="5" transform="rotate(315, 200, 200)" />
+</svg>
