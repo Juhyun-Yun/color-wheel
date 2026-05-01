@@ -9,11 +9,14 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-font-smoothing: antialiased; }
 
+html, body {
+    height: 100vh;
+}
+
 body {
     font-family: 'Noto Sans KR', 'Outfit', sans-serif;
     background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
     color: var(--text);
-    min-height: 100vh;
     display: flex;
     justify-content: center;
     align-items: center;
