@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;700&family=Outfit:wght@400;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=8">
+    <link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
     <div id="login-overlay" class="overlay">
@@ -20,7 +20,7 @@
             <button id="start-btn" class="primary-btn-large">탐험 시작하기!</button>
         </div>
     </div>
-    
+
     <div class="app-container hidden" id="main-app">
         <header><h1><span id="welcome-name"></span>님, 환영해요! 🎨</h1></header>
         <div class="app-layout">
@@ -33,18 +33,25 @@
                                 <svg viewBox="0 0 400 400" id="color-wheel"></svg>
                                 <div class="wheel-center">10색상환<br>탐험하기</div>
                             </div>
+                            <div class="explore-progress">
+                                <span id="explore-progress-text">0 / 10 색깔을 알아봤어요</span>
+                                <div class="progress-bar"><div id="explore-progress-fill"></div></div>
+                            </div>
                         </div>
                         <div class="info-section">
                             <div id="intro-card" class="color-card">
                                 <h2>색깔을 눌러보세요!</h2>
-                                <p>왼쪽의 색상환에서 궁금한 색을 클릭하면<br>그 색깔의 이름과 느낌을 알 수 있어요.</p>
+                                <p>왼쪽의 색상환에서 궁금한 색을 클릭하면<br>그 색깔의 이름과 느낌을 알 수 있어요.<br><br>✨ <strong>10가지 색을 모두 알아봐야</strong> 다음 단계로 갈 수 있어요!</p>
                             </div>
                             <div id="color-card" class="color-card hidden">
                                 <div id="color-indicator"></div>
                                 <h2 id="color-name">색깔 이름</h2>
                                 <p id="color-feeling"></p>
-                                <button class="next-step-btn primary-btn" data-target="create-wheel-view">다음 단계로 가기 ➔</button>
+                                <p id="color-keywords" class="color-keywords"></p>
                             </div>
+                            <button class="next-step-btn primary-btn outside-btn locked" data-target="create-wheel-view" id="explore-next-btn" disabled>
+                                <span id="explore-next-label">🔒 10가지 색을 모두 알아봐야 해요</span>
+                            </button>
                         </div>
                     </div>
                 </section>
@@ -56,6 +63,10 @@
                             <div class="wheel-wrapper">
                                 <svg viewBox="0 0 400 400" id="creation-wheel"></svg>
                                 <div class="wheel-center">정답을<br>맞혀봐!</div>
+                            </div>
+                            <div class="creation-progress">
+                                <span id="creation-progress-text">0 / 10 칸을 채웠어요</span>
+                                <div class="progress-bar"><div id="creation-progress-fill"></div></div>
                             </div>
                         </div>
                         <div class="mixing-panel">
@@ -69,14 +80,13 @@
                                     <div id="mix-ratio-display">빨강: 0 | 노랑: 0 | 파랑: 0</div>
                                 </div>
                             </div>
+                            <div class="placement-guide" id="placement-guide">
+                                👉 <strong>10색상환에서 이 색깔의 위치를 클릭</strong>하세요!
+                            </div>
                             <div class="creation-controls">
-                                <button id="clear-bowl" class="secondary-btn">다시 하기</button>
-                                <button id="check-creation" class="primary-btn">완성!</button>
+                                <button id="clear-bowl" class="secondary-btn small-btn">↺ 다시 하기</button>
                             </div>
                         </div>
-                    </div>
-                    <div style="display:flex; justify-content:center; margin-top:40px;">
-                        <button class="next-step-btn primary-btn" data-target="paint-view" style="padding:15px 40px; font-size:1.1rem; box-shadow: 0 10px 20px rgba(0,0,0,0.1);">나만의 그림 그리기 ➔</button>
                     </div>
                 </section>
 
@@ -84,12 +94,12 @@
                 <section id="paint-view" class="view-content">
                     <div class="selection-row">
                         <div class="control-group">
-                            배경: 
+                            배경:
                             <button id="bg-mode-blank" class="mode-btn active">빈 종이</button>
                             <button id="bg-mode-outline" class="mode-btn">밑그림</button>
                         </div>
                         <div class="control-group">
-                            기분: 
+                            기분:
                             <button id="theme-warm-energy" class="theme-btn energy-glow">열정적인 기분</button>
                             <button id="theme-warm-spring" class="theme-btn spring-glow">싱그러운 기분</button>
                             <button id="theme-cool-winter" class="theme-btn cool-glow">시원한 기분</button>
@@ -120,7 +130,7 @@
                 <!-- 04 갤러리 -->
                 <section id="gallery-view" class="view-content">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-                        <h2>🖼️ 학생 작품 갤러리</h2>
+                        <h2>🖼️ 우리반 갤러리</h2>
                         <button id="refresh-gallery" class="secondary-btn">새로고침 🔄</button>
                     </div>
                     <div id="gallery-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:25px; overflow-y:auto;">
@@ -135,24 +145,74 @@
                 <span class="step-num">01</span>
                 <span class="step-text">10색상환<br>알아보기</span>
             </button>
-            <button class="index-btn" data-target="create-wheel-view">
+            <button class="index-btn locked" data-target="create-wheel-view" data-requires="explore">
                 <span class="step-num">02</span>
                 <span class="step-text">10색상환<br>완성하기</span>
             </button>
-            <button class="index-btn" data-target="paint-view">
+            <button class="index-btn locked" data-target="paint-view" data-requires="create">
                 <span class="step-num">03</span>
                 <span class="step-text">나만의<br>그림 그리기</span>
             </button>
-            <button class="index-btn" data-target="gallery-view" style="border-right-color: #feca57;">
+            <button class="index-btn locked" data-target="gallery-view" data-requires="paint" style="border-right-color: #feca57;">
                 <span class="step-num">04</span>
                 <span class="step-text">우리반<br>갤러리</span>
             </button>
         </aside>
     </div>
 
+    <!-- 색상환 완성 축하 팝업 -->
+    <div id="completion-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <h2>🎉 10색상환 완성!</h2>
+            <p>모든 색깔의 위치를 맞췄어요!<br>완성된 10색상환을 확인해 보세요.</p>
+            <div class="modal-wheel-wrapper">
+                <svg viewBox="0 0 400 400" id="completed-wheel-svg"></svg>
+            </div>
+            <button id="completion-next-btn" class="primary-btn outside-btn" data-target="paint-view">나만의 그림 그리러 가기 ➔</button>
+        </div>
+    </div>
+
+    <!-- 자기 평가 팝업 -->
+    <div id="self-eval-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <h2>✨ 내 그림 돌아보기</h2>
+            <p>내가 그린 그림을 스스로 평가해 봐요!</p>
+            <div id="self-eval-rubric" class="rubric-list"></div>
+            <textarea id="self-eval-text" placeholder="내 그림에서 가장 마음에 드는 점은 무엇인가요?" rows="3"></textarea>
+            <div class="modal-buttons">
+                <button id="self-eval-cancel" class="secondary-btn">취소</button>
+                <button id="self-eval-submit" class="primary-btn">갤러리에 올리기 ➔</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 친구 댓글(루브릭) 팝업 -->
+    <div id="rubric-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <h2>💬 친구 작품 평가하기</h2>
+            <p><span id="rubric-friend-name"></span>의 작품을 평가해 봐요!</p>
+            <div id="friend-eval-rubric" class="rubric-list"></div>
+            <textarea id="friend-eval-text" placeholder="친구에게 따뜻한 한마디를 적어주세요!" rows="3"></textarea>
+            <div class="modal-buttons">
+                <button id="friend-eval-cancel" class="secondary-btn">취소</button>
+                <button id="friend-eval-submit" class="primary-btn">댓글 남기기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 댓글 보기 팝업 -->
+    <div id="comments-view-modal" class="modal-overlay hidden">
+        <div class="modal-card wide-modal">
+            <h2>💬 친구들의 댓글</h2>
+            <div id="comments-list" class="comments-list"></div>
+            <div class="modal-buttons">
+                <button id="comments-close" class="primary-btn">닫기</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 스크립트 -->
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
-    <script src="script.js?v=8"></script>
+    <script src="script.js?v=10"></script>
 </body>
 </html>
-
