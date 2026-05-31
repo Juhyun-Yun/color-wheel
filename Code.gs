@@ -1,12 +1,13 @@
 function doGet(e) {
   const action = e.parameter.action;
-
+  
   if (action === 'getStudentNames') {
     return createJsonResponse(getStudentNames());
   } else if (action === 'getArtworks') {
     return createJsonResponse(getArtworks());
   }
-
+  
+  // 기본적으로 HTML 서빙 (필요시)
   return HtmlService.createTemplateFromFile('index')
     .evaluate()
     .setTitle('10색상환 친구들')
@@ -18,20 +19,15 @@ function doPost(e) {
     const params = JSON.parse(e.postData.contents);
     const action = params.action;
     let result;
-
+    
     if (action === 'saveArtwork') {
       result = saveArtwork(params.data);
     } else if (action === 'saveFeedback') {
-      // 하위 호환: 기존 선생님 피드백 저장
       result = saveFeedback(params.rowId, params.feedback);
-    } else if (action === 'addComment') {
-      result = addComment(params.rowId, params.comment);
-    } else if (action === 'reuploadArtwork') {
-      result = reuploadArtwork(params.rowId, params.data);
     } else {
       throw new Error("Invalid action");
     }
-
+    
     return createJsonResponse({ status: 'success', data: result });
   } catch (error) {
     return createJsonResponse({ status: 'error', message: error.toString() });
@@ -43,6 +39,7 @@ function createJsonResponse(data) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// 명렬표에서 학생 명단 가져오기
 function getStudentNames() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName('명렬표');
@@ -54,105 +51,72 @@ function getStudentNames() {
   return values.map(row => row[0]).filter(name => name !== '');
 }
 
-function ensureArtworkSheet() {
+// 학생 작품 저장하기 (드라이브 폴더 생성 및 저장)
+function saveArtwork(data) {
+  const { name, imageData, theme } = data;
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName('작품제출');
+  
   if (!sheet) {
     sheet = ss.insertSheet('작품제출');
-    sheet.appendRow(['일시', '이름', '주제', '작품링크', '자기평가', '친구댓글', '버전']);
-  } else {
-    // 헤더 자동 마이그레이션
-    const headerRange = sheet.getRange(1, 1, 1, Math.max(7, sheet.getLastColumn()));
-    const headers = headerRange.getValues()[0];
-    const desired = ['일시', '이름', '주제', '작품링크', '자기평가', '친구댓글', '버전'];
-    let changed = false;
-    desired.forEach((h, i) => {
-      if (headers[i] !== h) { headers[i] = h; changed = true; }
-    });
-    if (changed) headerRange.setValues([headers]);
+    sheet.appendRow(['일시', '이름', '주제', '작품링크', '선생님피드백']);
   }
-  return sheet;
-}
-
-function ensureGalleryFolder() {
+  
+  // 드라이브 폴더 확인 및 생성
   const folderName = "10색상환_갤러리_작품";
-  const folders = DriveApp.getFoldersByName(folderName);
-  return folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
-}
-
-function uploadImageToDrive(name, theme, imageData) {
-  const folder = ensureGalleryFolder();
+  let folders = DriveApp.getFoldersByName(folderName);
+  let folder;
+  if (folders.hasNext()) {
+    folder = folders.next();
+  } else {
+    folder = DriveApp.createFolder(folderName);
+  }
+  
+  // 이미지 저장 (Base64 -> Blob)
   const contentType = imageData.substring(5, imageData.indexOf(';'));
   const bytes = Utilities.base64Decode(imageData.split(',')[1]);
   const blob = Utilities.newBlob(bytes, contentType, `${name}_${theme}_${new Date().getTime()}.png`);
   const file = folder.createFile(blob);
-  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  return "https://drive.google.com/uc?export=view&id=" + file.getId();
-}
-
-function saveArtwork(data) {
-  const { name, imageData, theme, selfEval } = data;
-  const sheet = ensureArtworkSheet();
-  const fileUrl = uploadImageToDrive(name, theme, imageData);
-  sheet.appendRow([new Date(), name, theme, fileUrl, selfEval || "", "[]", 1]);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); // 갤러리 표시를 위해 공유 설정
+  
+  const timestamp = new Date();
+  const fileUrl = "https://drive.google.com/uc?export=view&id=" + file.getId(); // 직접 이미지 링크 형식
+  
+  sheet.appendRow([timestamp, name, theme, fileUrl, ""]);
+  
   return { status: "success", fileUrl: fileUrl };
 }
 
-function reuploadArtwork(rowId, data) {
-  const sheet = ensureArtworkSheet();
-  const fileUrl = uploadImageToDrive(data.name, data.theme, data.imageData);
-  const current = sheet.getRange(rowId, 1, 1, 7).getValues()[0];
-  const prevVersion = Number(current[6]) || 1;
-  sheet.getRange(rowId, 1).setValue(new Date());
-  sheet.getRange(rowId, 4).setValue(fileUrl);
-  if (data.selfEval) sheet.getRange(rowId, 5).setValue(data.selfEval);
-  sheet.getRange(rowId, 7).setValue(prevVersion + 1);
-  return { status: "success", fileUrl: fileUrl, version: prevVersion + 1 };
-}
-
+// 모든 작품 가져오기 (갤러리 보드용)
 function getArtworks() {
-  const sheet = ensureArtworkSheet();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('작품제출');
+  if (!sheet) return [];
+  
   const values = sheet.getDataRange().getValues();
-  if (values.length <= 1) return [];
-
+  if (values.length <= 1) return []; // 헤더만 있는 경우
+  
   return values.slice(1).map((row, index) => ({
-    rowId: index + 2,
+    rowId: index + 2, // 실제 시트 행 번호
     timestamp: row[0],
     name: row[1],
     theme: row[2],
     imageData: row[3],
-    selfEval: row[4] || "",
-    comments: row[5] || "[]",
-    version: Number(row[6]) || 1
+    feedback: row[4] || ""
   }));
 }
 
-function addComment(rowId, commentJson) {
-  const sheet = ensureArtworkSheet();
-  const existing = sheet.getRange(rowId, 6).getValue() || "[]";
-  let arr;
-  try { arr = JSON.parse(existing); if (!Array.isArray(arr)) arr = []; } catch (e) { arr = []; }
-  const newComment = JSON.parse(commentJson);
-
-  // 동일 친구 + 동일 버전의 기존 댓글이 있으면 갱신, 없으면 추가
-  const existingIdx = arr.findIndex(c => c.friend === newComment.friend && (c.version || 1) === (newComment.version || 1));
-  if (existingIdx >= 0) {
-    arr[existingIdx] = newComment;
-  } else {
-    arr.push(newComment);
-  }
-  sheet.getRange(rowId, 6).setValue(JSON.stringify(arr));
-  return { status: "success" };
-}
-
-// 하위 호환용: 기존 선생님 피드백 (현재 UI에서는 사용되지 않음)
+// 선생님 피드백 저장하기
 function saveFeedback(rowId, feedback) {
-  const sheet = ensureArtworkSheet();
-  // 안전한 위치(8열)로 저장
-  sheet.getRange(rowId, 8).setValue(feedback);
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('작품제출');
+  if (!sheet) return "오류: 시트를 찾을 수 없습니다.";
+  
+  sheet.getRange(rowId, 5).setValue(feedback);
   return "피드백 저장 성공!";
 }
 
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
+
