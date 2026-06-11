@@ -19,44 +19,50 @@ const mixingRatios = {
     "파랑": { R: 0, Y: 0, B: 1 }, "남색": { R: 1, Y: 0, B: 2 }, "보라": { R: 1, Y: 0, B: 1 }, "자주": { R: 2, Y: 0, B: 1 }
 };
 
+// 루브릭 정의
+const selfEvalCriteria = [
+    { key: 'feeling', label: '🎨 내가 고른 기분에 어울리는 색을 사용했어요' },
+    { key: 'variety', label: '🌈 다양한 색을 활용해서 표현했어요' },
+    { key: 'effort', label: '💖 정성을 다해서 그렸어요' }
+];
+
+const friendEvalCriteria = [
+    { key: 'feeling', label: '🎨 기분에 어울리는 색을 잘 골랐어요' },
+    { key: 'variety', label: '🌈 색을 다양하게 사용했어요' },
+    { key: 'creativity', label: '✨ 표현이 창의적이에요' }
+];
+
 const state = {
     isDrawing: false, paintColor: '#FF3B30', currentTheme: 'energy', canvasMode: 'blank',
     creationWheelState: new Array(10).fill(null), currentMixture: { R: 0, Y: 0, B: 0 },
-    selectedColorFromPool: null
+    selectedColorFromPool: null,
+    viewedColors: new Set(),
+    progress: { explore: false, create: false, paint: false },
+    pendingArtwork: null,
+    pendingComment: { artId: null, ratings: {} },
+    currentSelfEval: { ratings: {} },
+    galleryCache: []
 };
 
-// API 통신 함수들
+// === API ===
 async function apiGet(action) {
-    if (GAS_URL.includes("YOUR_GAS")) {
-        console.warn("GAS_URL이 설정되지 않았습니다.");
-        return null;
-    }
+    if (GAS_URL.includes("YOUR_GAS")) { console.warn("GAS_URL이 설정되지 않았습니다."); return null; }
     try {
         const response = await fetch(`${GAS_URL}?action=${action}`);
         return await response.json();
-    } catch (e) {
-        console.error("API Get Error:", e);
-        return null;
-    }
+    } catch (e) { console.error("API Get Error:", e); return null; }
 }
 
 async function apiPost(action, data = {}) {
-    if (GAS_URL.includes("YOUR_GAS")) {
-        console.warn("GAS_URL이 설정되지 않았습니다.");
-        return null;
-    }
+    if (GAS_URL.includes("YOUR_GAS")) { console.warn("GAS_URL이 설정되지 않았습니다."); return null; }
     try {
-        const response = await fetch(GAS_URL, {
-            method: 'POST',
-            mode: 'no-cors', // GAS POST는 no-cors로 보내야 하는 경우가 많음 (리다이렉션 때문)
-            headers: { 'Content-Type': 'application/json' },
+        await fetch(GAS_URL, {
+            method: 'POST', mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({ action, ...data })
         });
-        return { status: 'sent' }; // no-cors에서는 응답을 읽을 수 없음
-    } catch (e) {
-        console.error("API Post Error:", e);
-        return null;
-    }
+        return { status: 'sent' };
+    } catch (e) { console.error("API Post Error:", e); return null; }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -100,10 +106,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.cancelable) e.preventDefault();
     }
 
-    function stopPaint() {
-        state.isDrawing = false;
-        ctx.beginPath();
-    }
+    function stopPaint() { state.isDrawing = false; ctx.beginPath(); }
 
     canvas.onmousedown = startPaint;
     window.addEventListener('mousemove', movePaint);
@@ -112,7 +115,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('touchmove', movePaint, { passive: false });
     window.addEventListener('touchend', stopPaint);
 
-    // --- Student Names Fetch ---
+    // --- 학생 명단 ---
     const nameSelect = document.getElementById('student-name-input');
     async function loadStudentNames() {
         const names = await apiGet('getStudentNames');
@@ -120,121 +123,138 @@ document.addEventListener('DOMContentLoaded', () => {
             nameSelect.innerHTML = '<option value="">선택하세요</option>';
             names.forEach(n => { const o = document.createElement('option'); o.value = n; o.innerText = n; nameSelect.appendChild(o); });
         } else {
-            // Fallback: 스프레드시트 연결 실패 시 30명 생성
             for (let i = 1; i <= 30; i++) {
                 const o = document.createElement('option');
-                o.value = "학생 " + i;
-                o.innerText = "학생 " + i;
+                o.value = "학생 " + i; o.innerText = "학생 " + i;
                 nameSelect.appendChild(o);
             }
         }
     }
     loadStudentNames();
 
-    // --- App Navigation ---
+    // --- 진행 상태 관리 ---
+    function updateNavLocks() {
+        document.querySelectorAll('.index-btn[data-requires]').forEach(btn => {
+            const req = btn.dataset.requires;
+            const unlocked = state.progress[req];
+            btn.classList.toggle('locked', !unlocked);
+        });
+    }
+
+    function setProgress(stage) {
+        state.progress[stage] = true;
+        updateNavLocks();
+    }
+
+    function navigateTo(target) {
+        document.querySelectorAll('.index-btn').forEach(b => b.classList.toggle('active', b.dataset.target === target));
+        document.querySelectorAll('.view-content').forEach(v => v.classList.toggle('active', v.id === target));
+        if (target === 'create-wheel-view') initCreation();
+        if (target === 'paint-view') updatePaintUI();
+        if (target === 'gallery-view') initGallery();
+        handleResize();
+    }
+
+    // --- 앱 시작 ---
     document.getElementById('start-btn').onclick = () => {
         if (nameSelect.value) {
             document.getElementById('welcome-name').innerText = nameSelect.value;
             document.getElementById('login-overlay').classList.add('hidden');
             mainApp.classList.remove('hidden');
             initExplore();
+            updateNavLocks();
             handleResize();
         }
     };
 
-    document.querySelectorAll('.index-btn, .next-step-btn').forEach(btn => {
+    // --- 인덱스/다음 버튼 ---
+    document.querySelectorAll('.index-btn').forEach(btn => {
         btn.onclick = () => {
+            if (btn.classList.contains('locked')) {
+                const stageMap = { explore: '01 단계', create: '02 단계', paint: '03 단계' };
+                alert(`먼저 ${stageMap[btn.dataset.requires]}를 완료해야 해요!`);
+                return;
+            }
             const target = btn.dataset.target;
-            if (!target) return;
-            document.querySelectorAll('.index-btn').forEach(b => b.classList.toggle('active', b.dataset.target === target));
-            document.querySelectorAll('.view-content').forEach(v => v.classList.toggle('active', v.id === target));
-            if (target === 'create-wheel-view') initCreation();
-            if (target === 'paint-view') updatePaintUI();
-            if (target === 'gallery-view') initGallery();
-            handleResize();
+            if (target) navigateTo(target);
         };
     });
 
-    // --- Gallery View ---
-    async function initGallery() {
-        const grid = document.getElementById('gallery-grid');
-        grid.innerHTML = '<p style="padding:20px; text-align:center; width:100%;">작품을 불러오고 있어요... 🎨</p>';
-        const artworks = await apiGet('getArtworks');
-        if (artworks) {
-            renderGallery(artworks);
+    document.querySelectorAll('.next-step-btn').forEach(btn => {
+        btn.onclick = () => {
+            if (btn.disabled || btn.classList.contains('locked')) return;
+            const target = btn.dataset.target;
+            if (target) navigateTo(target);
+        };
+    });
+
+    // --- 01 탐험하기 ---
+    function updateExploreProgress() {
+        const count = state.viewedColors.size;
+        document.getElementById('explore-progress-text').innerText = `${count} / 10 색깔을 알아봤어요`;
+        document.getElementById('explore-progress-fill').style.width = `${count * 10}%`;
+        const nextBtn = document.getElementById('explore-next-btn');
+        if (count >= 10) {
+            nextBtn.disabled = false;
+            nextBtn.classList.remove('locked');
+            document.getElementById('explore-next-label').innerText = '다음 단계로 가기 ➔';
+            setProgress('explore');
         } else {
-            renderGallery([
-                { rowId: 2, name: "학생1", theme: "energy", imageData: "https://via.placeholder.com/300x200", feedback: "색감이 아주 강렬하고 멋져요!" }
-            ]);
+            nextBtn.disabled = true;
+            nextBtn.classList.add('locked');
+            document.getElementById('explore-next-label').innerText = `🔒 ${10 - count}가지 색을 더 알아봐야 해요`;
         }
     }
 
-    function renderGallery(artworks) {
-        const grid = document.getElementById('gallery-grid');
-        grid.innerHTML = '';
-        if (artworks.length === 0) {
-            grid.innerHTML = '<p style="padding:40px; text-align:center; width:100%; color:#636e72;">아직 등록된 작품이 없어요. 😢</p>';
-            return;
-        }
-        artworks.forEach(art => {
-            const card = document.createElement('div');
-            card.className = 'glass-card';
-            card.style.padding = '15px'; card.style.display = 'flex'; card.style.flexDirection = 'column'; card.style.gap = '10px';
-            card.innerHTML = `
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <strong style="font-size:1.1rem;">${art.name}</strong>
-                    <span style="font-size:0.8rem; padding:4px 8px; border-radius:8px; background:#f1f2f6; color:#6c5ce7; font-weight:700;">${art.theme === 'energy' ? '열정' : art.theme === 'spring' ? '싱그러움' : '시원함'}</span>
-                </div>
-                <img src="${art.imageData}" style="width:100%; border-radius:12px; border:1px solid #eee; cursor:pointer;" onclick="window.open('${art.imageData}')">
-                <div style="margin-top:5px;">
-                    <label style="font-size:0.8rem; font-weight:800; color:#636e72;">선생님 한마디:</label>
-                    <div style="display:flex; gap:8px; margin-top:5px;">
-                        <input type="text" id="fb-${art.rowId}" value="${art.feedback}" placeholder="칭찬 한마디 써주세요!" style="flex:1; padding:8px 12px; border:2px solid #eee; border-radius:10px; font-size:0.85rem; font-family:inherit;">
-                        <button onclick="submitFeedback(${art.rowId})" class="primary-btn" style="padding:8px 15px; font-size:0.8rem;">저장</button>
-                    </div>
-                </div>
-            `;
-            grid.appendChild(card);
-        });
-    }
-
-    window.submitFeedback = async (rowId) => {
-        const feedback = document.getElementById(`fb-${rowId}`).value;
-        await apiPost('saveFeedback', { rowId, feedback });
-        alert('피드백 저장을 요청했습니다! (처리 중)');
-    };
-
-    document.getElementById('refresh-gallery').onclick = initGallery;
-
-    // --- Explore View ---
     function initExplore() {
         const wheel = document.getElementById('color-wheel'); wheel.innerHTML = '';
+        state.viewedColors = new Set();
         colorData.forEach((c, i) => {
             const el = document.createElementNS("http://www.w3.org/2000/svg", "path");
             el.setAttribute("d", createSlicePath(200, 200, 180, i * 36, (i + 1) * 36));
             el.setAttribute("fill", c.hex);
+            el.dataset.colorName = c.name;
             el.onclick = () => {
                 wheel.style.transform = `rotate(${-(i + 0.5) * 36}deg)`;
                 document.getElementById('color-card').classList.remove('hidden');
                 document.getElementById('intro-card').classList.add('hidden');
                 document.getElementById('color-name').innerText = c.name;
                 document.getElementById('color-feeling').innerText = c.feeling;
+                document.getElementById('color-keywords').innerText = '#' + c.keywords.join('  #');
                 document.getElementById('color-indicator').style.backgroundColor = c.hex;
+                state.viewedColors.add(c.name);
+                el.classList.add('viewed');
+                updateExploreProgress();
             };
             wheel.appendChild(el);
             addWheelLabel(wheel, i, c.name, "white");
         });
+        updateExploreProgress();
     }
 
-    // --- Creation View ---
+    // --- 02 완성하기 ---
+    function updateCreationProgress() {
+        const filled = state.creationWheelState.filter(s => s !== null).length;
+        document.getElementById('creation-progress-text').innerText = `${filled} / 10 칸을 채웠어요`;
+        document.getElementById('creation-progress-fill').style.width = `${filled * 10}%`;
+        if (filled === 10 && state.creationWheelState.every((s, i) => s === colorData[i].name)) {
+            showCompletionModal();
+            setProgress('create');
+        }
+    }
+
     function initCreation() {
         const wheel = document.getElementById('creation-wheel'); wheel.innerHTML = '';
+        state.creationWheelState = new Array(10).fill(null);
+        state.currentMixture = { R: 0, Y: 0, B: 0 };
+        state.selectedColorFromPool = null;
         renderPool();
         updateBowl();
         for (let i = 0; i < 10; i++) {
             const slot = document.createElementNS("http://www.w3.org/2000/svg", "path");
             slot.setAttribute("d", createSlicePath(200, 200, 180, i * 36, (i + 1) * 36));
             slot.setAttribute("fill", "#f1f2f6"); slot.setAttribute("stroke", "white");
+            slot.style.cursor = 'pointer';
             slot.onclick = () => {
                 if (state.selectedColorFromPool && state.selectedColorFromPool.name === colorData[i].name) {
                     slot.setAttribute('fill', state.selectedColorFromPool.hex);
@@ -242,16 +262,23 @@ document.addEventListener('DOMContentLoaded', () => {
                     state.currentMixture = { R: 0, Y: 0, B: 0 };
                     state.selectedColorFromPool = null;
                     updateBowl();
+                    updateCreationProgress();
+                } else if (state.selectedColorFromPool) {
+                    slot.style.transition = 'none';
+                    slot.setAttribute('fill', '#ffcccc');
+                    setTimeout(() => slot.setAttribute('fill', state.creationWheelState[i] ? colorData.find(c => c.name === state.creationWheelState[i]).hex : '#f1f2f6'), 400);
+                } else {
+                    alert('먼저 물감을 섞어서 색을 만들어 보세요!');
                 }
             };
             wheel.appendChild(slot);
             addWheelLabel(wheel, i, colorData[i].name, "#636e72");
         }
+        updateCreationProgress();
     }
 
     function renderPool() {
-        const pool = document.getElementById('primary-pool');
-        pool.innerHTML = '';
+        const pool = document.getElementById('primary-pool'); pool.innerHTML = '';
         [{ id: 'R', n: '빨강', c: '#FF3B30' }, { id: 'Y', n: '노랑', c: '#FFCC00' }, { id: 'B', n: '파랑', c: '#007AFF' }].forEach(p => {
             const d = document.createElement('div');
             d.className = 'primary-piece'; d.style.backgroundColor = p.c; d.innerText = p.n;
@@ -271,10 +298,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const resP = document.getElementById('mix-result-preview');
         const resN = document.getElementById('mix-result-name');
         const ratioDisplay = document.getElementById('mix-ratio-display');
+        const guide = document.getElementById('placement-guide');
         if (ratioDisplay) ratioDisplay.innerText = `빨강: ${R} | 노랑: ${Y} | 파랑: ${B}`;
         if (total === 0) {
             resP.style.backgroundColor = 'transparent'; resN.innerText = '물감을 섞어보세요';
-            document.getElementById('bowl-content').style.backgroundColor = 'transparent'; return;
+            document.getElementById('bowl-content').style.backgroundColor = 'transparent';
+            guide.classList.remove('ready');
+            guide.innerHTML = '👉 물감을 섞어서 10가지 색 중 하나를 만들어 보세요!';
+            state.selectedColorFromPool = null;
+            return;
         }
         let matched = "";
         for (let n in mixingRatios) {
@@ -285,15 +317,43 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('bowl-content').style.backgroundColor = hex;
         resP.style.backgroundColor = hex; resN.innerText = matched || '섞는 중...';
         state.selectedColorFromPool = { name: matched, hex: hex };
+
+        if (matched) {
+            guide.classList.add('ready');
+            guide.innerHTML = `✨ <strong>${matched}</strong>이(가) 만들어졌어요! 10색상환에서 <strong>${matched}</strong>의 위치를 클릭하세요!`;
+        } else {
+            guide.classList.remove('ready');
+            guide.innerHTML = '🎨 아직 10가지 색이 아니에요. 비율을 조절해 보세요!';
+        }
     }
+
     document.getElementById('clear-bowl').onclick = () => {
         state.currentMixture = { R: 0, Y: 0, B: 0 }; state.selectedColorFromPool = null; updateBowl();
     };
-    document.getElementById('check-creation').onclick = () => {
-        if (state.creationWheelState.every((s, i) => s === colorData[i].name)) confetti();
+
+    function showCompletionModal() {
+        const modal = document.getElementById('completion-modal');
+        const svg = document.getElementById('completed-wheel-svg');
+        svg.innerHTML = '';
+        colorData.forEach((c, i) => {
+            const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            p.setAttribute("d", createSlicePath(200, 200, 180, i * 36, (i + 1) * 36));
+            p.setAttribute("fill", c.hex);
+            p.setAttribute("stroke", "white");
+            p.setAttribute("stroke-width", "2");
+            svg.appendChild(p);
+            addWheelLabel(svg, i, c.name, "white");
+        });
+        modal.classList.remove('hidden');
+        confetti({ particleCount: 150, spread: 90, origin: { y: 0.6 } });
+    }
+
+    document.getElementById('completion-next-btn').onclick = () => {
+        document.getElementById('completion-modal').classList.add('hidden');
+        navigateTo('paint-view');
     };
 
-    // --- Paint View ---
+    // --- 03 그리기 ---
     document.getElementById('bg-mode-blank').onclick = () => { state.canvasMode = 'blank'; updatePaintUI(); };
     document.getElementById('bg-mode-outline').onclick = () => { state.canvasMode = 'outline'; updatePaintUI(); };
     document.getElementById('theme-warm-energy').onclick = () => { state.currentTheme = 'energy'; updatePaintUI(); };
@@ -346,15 +406,267 @@ document.addEventListener('DOMContentLoaded', () => {
         if (state.canvasMode === 'outline') drawTree();
     };
 
-    document.getElementById('save-canvas').onclick = async () => {
+    document.getElementById('save-canvas').onclick = () => {
         const imageData = canvas.toDataURL();
         const studentName = document.getElementById('welcome-name').innerText;
         const theme = state.currentTheme;
-        const link = document.createElement('a');
-        link.download = `${studentName}_그림.png`; link.href = imageData; link.click();
-        await apiPost('saveArtwork', { data: { name: studentName, imageData: imageData, theme: theme } });
-        alert('저장 요청을 보냈습니다!');
+        state.pendingArtwork = { imageData, studentName, theme };
+        openSelfEvalModal();
     };
+
+    // --- 자기 평가 모달 ---
+    function openSelfEvalModal() {
+        state.currentSelfEval = { ratings: {} };
+        const rubricEl = document.getElementById('self-eval-rubric');
+        rubricEl.innerHTML = '';
+        selfEvalCriteria.forEach(c => {
+            rubricEl.appendChild(buildRubricItem(c, (key, val) => {
+                state.currentSelfEval.ratings[key] = val;
+            }));
+        });
+        document.getElementById('self-eval-text').value = '';
+        document.getElementById('self-eval-modal').classList.remove('hidden');
+    }
+
+    document.getElementById('self-eval-cancel').onclick = () => {
+        document.getElementById('self-eval-modal').classList.add('hidden');
+        state.pendingArtwork = null;
+        state.reuploadTarget = null;
+    };
+
+    document.getElementById('self-eval-submit').onclick = async () => {
+        const incomplete = selfEvalCriteria.some(c => !state.currentSelfEval.ratings[c.key]);
+        if (incomplete) { alert('모든 항목을 평가해 주세요!'); return; }
+        const note = document.getElementById('self-eval-text').value;
+        const art = state.pendingArtwork;
+        if (!art) return;
+
+        const link = document.createElement('a');
+        link.download = `${art.studentName}_그림.png`; link.href = art.imageData; link.click();
+
+        const selfEvalPayload = JSON.stringify({ ratings: state.currentSelfEval.ratings, note });
+
+        if (state.reuploadTarget) {
+            await apiPost('reuploadArtwork', {
+                rowId: state.reuploadTarget.rowId,
+                data: { name: art.studentName, imageData: art.imageData, theme: art.theme, selfEval: selfEvalPayload }
+            });
+            state.reuploadTarget = null;
+            alert('수정한 작품을 다시 올렸어요! 친구들이 새로 댓글을 달 수 있어요. ✨');
+        } else {
+            await apiPost('saveArtwork', {
+                data: { name: art.studentName, imageData: art.imageData, theme: art.theme, selfEval: selfEvalPayload }
+            });
+            alert('갤러리에 작품을 올렸어요! 친구들의 댓글을 기다려 봐요. 🎨');
+        }
+
+        document.getElementById('self-eval-modal').classList.add('hidden');
+        state.pendingArtwork = null;
+        setProgress('paint');
+        navigateTo('gallery-view');
+    };
+
+    // --- 루브릭 빌더 ---
+    function buildRubricItem(criterion, onChange) {
+        const item = document.createElement('div');
+        item.className = 'rubric-item';
+        const label = document.createElement('div');
+        label.className = 'rubric-item-label';
+        label.innerText = criterion.label;
+        item.appendChild(label);
+        const stars = document.createElement('div');
+        stars.className = 'rubric-stars';
+        for (let i = 1; i <= 5; i++) {
+            const btn = document.createElement('button');
+            btn.className = 'star-btn';
+            btn.innerText = '★';
+            btn.onclick = () => {
+                stars.querySelectorAll('.star-btn').forEach((b, idx) => {
+                    b.classList.toggle('filled', idx < i);
+                });
+                onChange(criterion.key, i);
+            };
+            stars.appendChild(btn);
+        }
+        item.appendChild(stars);
+        return item;
+    }
+
+    // --- 04 갤러리 ---
+    async function initGallery() {
+        const grid = document.getElementById('gallery-grid');
+        grid.innerHTML = '<p style="padding:20px; text-align:center; width:100%;">작품을 불러오고 있어요... 🎨</p>';
+        const artworks = await apiGet('getArtworks');
+        state.galleryCache = Array.isArray(artworks) ? artworks : [];
+        renderGallery(state.galleryCache);
+    }
+
+    function parseJSONSafe(s, fallback) {
+        if (!s) return fallback;
+        try { return JSON.parse(s); } catch (e) { return fallback; }
+    }
+
+    function calcAverageStars(comments) {
+        if (!comments || comments.length === 0) return 0;
+        let total = 0, count = 0;
+        comments.forEach(c => {
+            const r = c.ratings || {};
+            Object.values(r).forEach(v => { total += v; count++; });
+        });
+        return count === 0 ? 0 : total / count;
+    }
+
+    function renderStars(avg) {
+        const rounded = Math.round(avg);
+        let html = '';
+        for (let i = 1; i <= 5; i++) {
+            html += `<span class="${i <= rounded ? '' : 'star-empty'}">★</span>`;
+        }
+        return html;
+    }
+
+    function renderGallery(artworks) {
+        const grid = document.getElementById('gallery-grid');
+        grid.innerHTML = '';
+        if (artworks.length === 0) {
+            grid.innerHTML = '<p style="padding:40px; text-align:center; width:100%; color:#636e72;">아직 등록된 작품이 없어요. 😢</p>';
+            return;
+        }
+        const myName = document.getElementById('welcome-name').innerText;
+        artworks.forEach(art => {
+            const comments = parseJSONSafe(art.comments, []);
+            const selfEval = parseJSONSafe(art.selfEval, null);
+            const version = art.version || 1;
+            const avg = calcAverageStars(comments);
+            const isMine = art.name === myName;
+            const myComment = comments.find(c => c.friend === myName && c.version === version);
+
+            const card = document.createElement('div');
+            card.className = 'gallery-card';
+            const themeLabel = art.theme === 'energy' ? '열정' : art.theme === 'spring' ? '싱그러움' : '시원함';
+
+            card.innerHTML = `
+                <div class="gallery-card-header">
+                    <strong>${escapeHtml(art.name)}${version > 1 ? `<span class="version-badge">수정 v${version}</span>` : ''}</strong>
+                    <span class="theme-badge">${themeLabel}</span>
+                </div>
+                <img src="${art.imageData}" alt="${escapeHtml(art.name)}의 그림">
+                <div class="gallery-stars">${renderStars(avg)}</div>
+                ${selfEval && selfEval.note ? `<div class="self-eval-section"><strong>내 한마디:</strong> ${escapeHtml(selfEval.note)}</div>` : ''}
+                <div class="gallery-actions">
+                    <button class="secondary-btn view-comments-btn">💬 댓글 보기 (${comments.length})</button>
+                    ${isMine ? `<button class="primary-btn reupload-btn">✏️ 수정해서 다시 올리기</button>` : `<button class="primary-btn comment-btn">${myComment ? '댓글 수정' : '댓글 달기'}</button>`}
+                </div>
+            `;
+
+            card.querySelector('img').onclick = () => window.open(art.imageData);
+            card.querySelector('.view-comments-btn').onclick = () => openCommentsModal(comments);
+
+            if (isMine) {
+                card.querySelector('.reupload-btn').onclick = () => {
+                    if (confirm('그림을 수정하면 새 버전으로 올라가고 친구들이 다시 댓글을 달 수 있어요. 그리기로 이동할까요?')) {
+                        state.reuploadTarget = { rowId: art.rowId, version: version };
+                        navigateTo('paint-view');
+                    }
+                };
+            } else {
+                card.querySelector('.comment-btn').onclick = () => openCommentModal(art, myComment);
+            }
+
+            grid.appendChild(card);
+        });
+    }
+
+    function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function openCommentModal(art, existingComment) {
+        state.pendingComment = { artId: art.rowId, version: art.version || 1, ratings: existingComment ? { ...existingComment.ratings } : {} };
+        document.getElementById('rubric-friend-name').innerText = art.name;
+        const rubricEl = document.getElementById('friend-eval-rubric');
+        rubricEl.innerHTML = '';
+        friendEvalCriteria.forEach(c => {
+            const item = buildRubricItem(c, (key, val) => { state.pendingComment.ratings[key] = val; });
+            if (existingComment && existingComment.ratings && existingComment.ratings[c.key]) {
+                const val = existingComment.ratings[c.key];
+                item.querySelectorAll('.star-btn').forEach((b, idx) => { if (idx < val) b.classList.add('filled'); });
+            }
+            rubricEl.appendChild(item);
+        });
+        document.getElementById('friend-eval-text').value = existingComment ? existingComment.text || '' : '';
+        document.getElementById('rubric-modal').classList.remove('hidden');
+    }
+
+    document.getElementById('friend-eval-cancel').onclick = () => {
+        document.getElementById('rubric-modal').classList.add('hidden');
+    };
+
+    document.getElementById('friend-eval-submit').onclick = async () => {
+        const incomplete = friendEvalCriteria.some(c => !state.pendingComment.ratings[c.key]);
+        if (incomplete) { alert('모든 항목을 평가해 주세요!'); return; }
+        const text = document.getElementById('friend-eval-text').value;
+        const myName = document.getElementById('welcome-name').innerText;
+        const newComment = {
+            friend: myName,
+            ratings: state.pendingComment.ratings,
+            text,
+            version: state.pendingComment.version,
+            timestamp: new Date().toISOString()
+        };
+
+        // 1) 화면에 즉시 반영 (낙관적 업데이트)
+        const target = state.galleryCache.find(a => a.rowId === state.pendingComment.artId);
+        if (target) {
+            const arr = parseJSONSafe(target.comments, []);
+            const idx = arr.findIndex(c => c.friend === myName && (c.version || 1) === (newComment.version || 1));
+            if (idx >= 0) arr[idx] = newComment; else arr.push(newComment);
+            target.comments = JSON.stringify(arr);
+            renderGallery(state.galleryCache);
+        }
+
+        // 2) 서버에도 저장 요청
+        apiPost('addComment', {
+            rowId: state.pendingComment.artId,
+            comment: JSON.stringify(newComment)
+        });
+
+        document.getElementById('rubric-modal').classList.add('hidden');
+        // 3) 잠시 후 서버에서 최신 데이터로 동기화
+        setTimeout(initGallery, 2500);
+    };
+
+    function openCommentsModal(comments) {
+        const list = document.getElementById('comments-list');
+        list.innerHTML = '';
+        if (comments.length === 0) {
+            list.innerHTML = '<div class="comment-empty">아직 친구들이 댓글을 달지 않았어요. 🌱</div>';
+        } else {
+            comments.forEach(c => {
+                const div = document.createElement('div');
+                div.className = 'comment-item';
+                const ratingsSum = Object.values(c.ratings || {}).reduce((a, b) => a + b, 0);
+                const ratingsCount = Object.values(c.ratings || {}).length;
+                const avg = ratingsCount ? ratingsSum / ratingsCount : 0;
+                div.innerHTML = `
+                    <div class="comment-item-header">
+                        <span class="comment-name">${escapeHtml(c.friend)}${c.version && c.version > 1 ? ` <span class="version-badge">v${c.version}</span>` : ''}</span>
+                        <span class="comment-stars">${renderStars(avg)}</span>
+                    </div>
+                    <div class="comment-text">${escapeHtml(c.text)}</div>
+                `;
+                list.appendChild(div);
+            });
+        }
+        document.getElementById('comments-view-modal').classList.remove('hidden');
+    }
+
+    document.getElementById('comments-close').onclick = () => {
+        document.getElementById('comments-view-modal').classList.add('hidden');
+    };
+
+    document.getElementById('refresh-gallery').onclick = initGallery;
 
     function handleResize() {
         const scale = Math.min((window.innerWidth - 60) / 1520, (window.innerHeight - 50) / 880, 1);
@@ -380,4 +692,3 @@ document.addEventListener('DOMContentLoaded', () => {
         label.textContent = text; parent.appendChild(label);
     }
 });
-
