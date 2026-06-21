@@ -138,7 +138,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // --- 엔드포인트 로드 및 UI 초기화 ---
   const hasEndpoint = loadEndpoint();
   initSettingsUI(hasEndpoint);
-  if (hasEndpoint) loadStudentNames();
+  loadStudentNames();
 
   // --- 학생 드롭다운 토글 ---
   const ddTrigger = document.getElementById('student-dropdown-trigger');
@@ -213,7 +213,6 @@ document.addEventListener('DOMContentLoaded', () => {
     enterApp(name);
   };
 
-  document.getElementById('guest-start-btn').onclick = () => enterApp('');
 
   // --- 내비게이션 ---
   document.querySelectorAll('.index-btn, .next-step-btn').forEach(btn => {
@@ -604,18 +603,27 @@ async function loadStudentNames() {
   const hidden = document.getElementById('student-name-input');
   const startBtn = document.getElementById('start-btn');
 
+  const defaultStudents = Array.from({ length: 30 }, (_, i) => ({ number: i + 1, name: '학생' + (i + 1), lastActivity: null }));
+
+  if (!GAS_URL) {
+    renderStudentList(list, hidden, startBtn, defaultStudents);
+    return;
+  }
+
   list.innerHTML = '<p class="student-list-loading">명단을 불러오는 중...</p>';
 
   const result = await apiGet('getStudentNames');
-  const students = (result && result.length > 0)
-    ? result
-    : Array.from({ length: 25 }, (_, i) => ({ number: i + 1, name: '학생' + (i + 1), lastActivity: null }));
+  const students = (result && result.length > 0) ? result : defaultStudents;
 
+  renderStudentList(list, hidden, startBtn, students);
+}
+
+function renderStudentList(list, hidden, startBtn, students) {
   list.innerHTML = '';
 
   students.forEach(s => {
     const label = s.number + '번 ' + s.name;
-    const act   = s.lastActivity; // { time, stage, activity } 또는 null
+    const act   = s.lastActivity;
 
     const item = document.createElement('div');
     item.className = 'student-item';
@@ -627,7 +635,7 @@ async function loadStudentNames() {
           (act.stage    ? '<span class="s-tag s-tag-stage">' + act.stage    + '</span>' : '') +
           (act.activity ? '<span class="s-tag s-tag-act">'   + act.activity + '</span>' : '') +
         '</div>'
-      : '<div class="s-act-row"><span class="s-no-act">활동 없음</span></div>';
+      : '';
 
     item.innerHTML =
       '<div class="s-main">' +
@@ -663,7 +671,6 @@ function initSettingsUI(hasEndpoint) {
   const studentUrlSection = document.getElementById('student-url-section');
   const studentUrlDisplay = document.getElementById('student-url-display');
   const copyBtn = document.getElementById('copy-student-url');
-  const noEndpointMsg = document.getElementById('no-endpoint-msg');
   const loginSection = document.getElementById('login-section');
 
   function refreshStudentUrl() {
@@ -677,19 +684,15 @@ function initSettingsUI(hasEndpoint) {
   }
 
   function showLoginReady() {
-    if (noEndpointMsg) noEndpointMsg.classList.add('hidden');
     if (loginSection) loginSection.classList.remove('hidden');
   }
 
-  // 초기 상태
+  // 초기 상태 — 항상 드롭다운 표시
   if (hasEndpoint) {
     endpointInput.value = GAS_URL;
     refreshStudentUrl();
-    showLoginReady();
-  } else {
-    if (noEndpointMsg) noEndpointMsg.classList.remove('hidden');
-    if (loginSection) loginSection.classList.add('hidden');
   }
+  showLoginReady();
 
   // 학생용 URL(?endpoint=)로 접속 시 선생님 설정 버튼 숨김
   if (IS_STUDENT_URL) {

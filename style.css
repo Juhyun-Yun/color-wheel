@@ -776,27 +776,6 @@ header {
 }
 
 /* 연결 안 된 경우 메시지 */
-.no-endpoint-msg {
-    background: #fff8e1;
-    border: 1px solid #ffe082;
-    border-radius: 16px;
-    padding: 22px 20px;
-    text-align: center;
-    margin: 10px 0 16px;
-    line-height: 1.7;
-    color: #856404;
-}
-
-.no-endpoint-msg p:first-child {
-    font-weight: 800;
-    font-size: 1rem;
-    margin-bottom: 6px;
-}
-
-.no-endpoint-msg p:last-child {
-    font-size: 0.88rem;
-}
-
 /* 로그인 카드 내부 섹션 간격 */
 .login-card p {
     margin-bottom: 4px;
