@@ -1,0 +1,449 @@
+/**
+ * ============================================================
+ * © 2026 GEG 화성(깊이 e끌림). All rights reserved.
+ *
+ * 본 코드는 「저작권법」상 보호받는 저작물입니다.
+ * - 복제권(제16조)·공중송신권(제18조)·배포권(제20조)은
+ *   저작권자에게 있습니다.
+ * - 정식 경로로 받은 이용자라도 코드의 무단 복제·재배포·
+ *   재판매·리브랜딩은 허용되지 않습니다.
+ * - 무단 이용 시 「저작권법」 제136조(5년 이하 징역 또는
+ *   5천만 원 이하 벌금) 및 제125조(손해배상) 적용 대상이
+ *   될 수 있습니다.
+ * - 이용 문의: bacusiki777@gmail.com, for2102@jimj.kr
+ * ============================================================
+ */
+
+// 빌드 서명
+const _BUILD_SIG = 'GEGHS-DEEPE-2026';
+
+// 출처 확인용 함수
+function getBuildInfo() {
+  return {
+    sig: _BUILD_SIG,
+    owner: 'GEG 화성(깊이 e끌림)',
+    year: 2026
+  };
+}
+
+// ============================================================
+// 시트 이름 상수 (코드와 시트가 연결되어 있으니 이름을 바꾸지 마세요)
+// ============================================================
+const SHEET_NAME_ROSTER = '명렬표';
+const SHEET_NAME_ARTWORK = '작품제출';
+const SHEET_NAME_GUIDE = '사용 설명';
+const LEGACY_GUIDE_NAMES = ['📋 사용법', '사용 설명'];
+const ROSTER_MAX = 30;
+const ROSTER_PLACEHOLDER_PATTERN = /^학생\s*\d+$/;
+
+function doGet(e) {
+  const params = (e && e.parameter) ? e.parameter : {};
+  const action = params.action;
+  const callback = params.callback;
+
+  if (action === 'getStudentNames') {
+    return createJsonResponse(getStudentNames(), callback);
+  } else if (action === 'getArtworks') {
+    return createJsonResponse(getArtworks(), callback);
+  }
+
+  // 화면(HTML)은 GitHub Pages에서 제공하고, 이 웹앱은 데이터만 주고받습니다.
+  return createJsonResponse({ status: 'ok', message: '연결되었습니다.' }, callback);
+}
+
+function doPost(e) {
+  try {
+    const params = JSON.parse(e.postData.contents);
+    const action = params.action;
+    let result;
+
+    if (action === 'saveArtwork') {
+      result = saveArtwork(params.data);
+    } else if (action === 'saveFeedback') {
+      // 하위 호환: 기존 선생님 피드백 저장
+      result = saveFeedback(params.rowId, params.feedback);
+    } else if (action === 'addComment') {
+      result = addComment(params.rowId, params.comment);
+    } else if (action === 'reuploadArtwork') {
+      result = reuploadArtwork(params.rowId, params.data);
+    } else {
+      throw new Error("Invalid action");
+    }
+
+    return createJsonResponse({ status: 'success', data: result });
+  } catch (error) {
+    return createJsonResponse({ status: 'error', message: error.toString() });
+  }
+}
+
+// callback이 있으면 JSONP(스크립트 태그) 응답으로, 없으면 일반 JSON 응답으로 내려줍니다.
+function createJsonResponse(data, callback) {
+  if (callback) {
+    return ContentService
+      .createTextOutput(callback + '(' + JSON.stringify(data) + ')')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+  return ContentService.createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ============================================================
+// 명렬표 (학생 명단 + 최신 활동)
+// A열 = 번호, B열 = 이름, C열 = 최신 활동
+// ============================================================
+function ensureRosterSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_NAME_ROSTER);
+
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_NAME_ROSTER);
+    const rows = [['번호', '이름', '최신 활동']];
+    for (let i = 1; i <= ROSTER_MAX; i++) {
+      rows.push([i, '학생' + i, '']);
+    }
+    sheet.getRange(1, 1, rows.length, 3).setValues(rows);
+    sheet.getRange(1, 1, 1, 3).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    return sheet;
+  }
+
+  // 기존 구조(예: 이름만 1열에 있던 구버전)인지 확인 후 새 구조로 마이그레이션
+  const header = sheet.getRange(1, 1, 1, 2).getValues()[0];
+  const isNewStructure = header[0] === '번호' && header[1] === '이름';
+  if (!isNewStructure) {
+    const lastRow = sheet.getLastRow();
+    const oldValues = lastRow > 0 ? sheet.getRange(1, 1, lastRow, 1).getValues() : [];
+    const existingNames = oldValues.map(r => r[0]).filter(v => v !== '' && v !== null);
+
+    sheet.clear();
+    const rows = [['번호', '이름', '최신 활동']];
+    existingNames.forEach((name, idx) => rows.push([idx + 1, name, '']));
+    sheet.getRange(1, 1, rows.length, 3).setValues(rows);
+    sheet.getRange(1, 1, 1, 3).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+  }
+
+  return sheet;
+}
+
+function getStudentNames() {
+  const sheet = ensureRosterSheet();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  const values = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
+  return values
+    .map(row => String(row[0] || '').trim())
+    .filter(name => name !== '' && !ROSTER_PLACEHOLDER_PATTERN.test(name));
+}
+
+// 학생 이름 옆(같은 줄)에 최신 활동 내용을 기록합니다.
+function updateLatestActivity(name, activityText) {
+  if (!name) return;
+  const sheet = ensureRosterSheet();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+  const names = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
+  for (let i = 0; i < names.length; i++) {
+    if (String(names[i][0]).trim() === name) {
+      const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MM/dd HH:mm');
+      sheet.getRange(i + 2, 3).setValue(activityText + ' (' + stamp + ')');
+      break;
+    }
+  }
+}
+
+// ============================================================
+// 작품제출 (전체 활동을 시간순으로 기록하는 탭)
+// ============================================================
+function ensureArtworkSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_NAME_ARTWORK);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_NAME_ARTWORK);
+    sheet.appendRow(['일시', '이름', '주제', '작품링크', '자기평가', '친구댓글', '버전']);
+  } else {
+    // 헤더 자동 마이그레이션
+    const headerRange = sheet.getRange(1, 1, 1, Math.max(7, sheet.getLastColumn()));
+    const headers = headerRange.getValues()[0];
+    const desired = ['일시', '이름', '주제', '작품링크', '자기평가', '친구댓글', '버전'];
+    let changed = false;
+    desired.forEach((h, i) => {
+      if (headers[i] !== h) { headers[i] = h; changed = true; }
+    });
+    if (changed) headerRange.setValues([headers]);
+  }
+  return sheet;
+}
+
+function ensureGalleryFolder() {
+  const folderName = "10색상환_갤러리_작품";
+  const folders = DriveApp.getFoldersByName(folderName);
+  return folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+}
+
+function uploadImageToDrive(name, theme, imageData) {
+  const folder = ensureGalleryFolder();
+  const contentType = imageData.substring(5, imageData.indexOf(';'));
+  const bytes = Utilities.base64Decode(imageData.split(',')[1]);
+  const blob = Utilities.newBlob(bytes, contentType, `${name}_${theme}_${new Date().getTime()}.png`);
+  const file = folder.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return "https://drive.google.com/uc?export=view&id=" + file.getId();
+}
+
+function saveArtwork(data) {
+  const { name, imageData, theme, selfEval } = data;
+  const sheet = ensureArtworkSheet();
+  const fileUrl = uploadImageToDrive(name, theme, imageData);
+  sheet.appendRow([new Date(), name, theme, fileUrl, selfEval || "", "[]", 1]);
+  updateLatestActivity(name, '그림 제출');
+  return { status: "success", fileUrl: fileUrl };
+}
+
+function reuploadArtwork(rowId, data) {
+  const sheet = ensureArtworkSheet();
+  const fileUrl = uploadImageToDrive(data.name, data.theme, data.imageData);
+  const current = sheet.getRange(rowId, 1, 1, 7).getValues()[0];
+  const prevVersion = Number(current[6]) || 1;
+  sheet.getRange(rowId, 1).setValue(new Date());
+  sheet.getRange(rowId, 4).setValue(fileUrl);
+  if (data.selfEval) sheet.getRange(rowId, 5).setValue(data.selfEval);
+  sheet.getRange(rowId, 7).setValue(prevVersion + 1);
+  updateLatestActivity(data.name, '그림 수정 제출 (v' + (prevVersion + 1) + ')');
+  return { status: "success", fileUrl: fileUrl, version: prevVersion + 1 };
+}
+
+function getArtworks() {
+  const sheet = ensureArtworkSheet();
+  const values = sheet.getDataRange().getValues();
+  if (values.length <= 1) return [];
+
+  return values.slice(1).map((row, index) => ({
+    rowId: index + 2,
+    timestamp: row[0],
+    name: row[1],
+    theme: row[2],
+    imageData: row[3],
+    selfEval: row[4] || "",
+    comments: row[5] || "[]",
+    version: Number(row[6]) || 1
+  }));
+}
+
+function addComment(rowId, commentJson) {
+  const sheet = ensureArtworkSheet();
+  const existing = sheet.getRange(rowId, 6).getValue() || "[]";
+  let arr;
+  try { arr = JSON.parse(existing); if (!Array.isArray(arr)) arr = []; } catch (e) { arr = []; }
+  const newComment = JSON.parse(commentJson);
+
+  // 동일 친구 + 동일 버전의 기존 댓글이 있으면 갱신, 없으면 추가
+  const existingIdx = arr.findIndex(c => c.friend === newComment.friend && (c.version || 1) === (newComment.version || 1));
+  if (existingIdx >= 0) {
+    arr[existingIdx] = newComment;
+  } else {
+    arr.push(newComment);
+  }
+  sheet.getRange(rowId, 6).setValue(JSON.stringify(arr));
+  if (newComment.friend) updateLatestActivity(newComment.friend, '친구 작품에 댓글 남김');
+  return { status: "success" };
+}
+
+// 하위 호환용: 기존 선생님 피드백 (현재 UI에서는 사용되지 않음)
+function saveFeedback(rowId, feedback) {
+  const sheet = ensureArtworkSheet();
+  // 안전한 위치(8열)로 저장
+  sheet.getRange(rowId, 8).setValue(feedback);
+  return "피드백 저장 성공!";
+}
+
+// (GitHub Pages에서 style.css, script.js를 직접 불러오므로 별도 include 함수는 필요 없습니다.)
+
+// ============================================================
+// 초기 설정 (사본을 만든 뒤 한 번 실행하면 명렬표/작품제출/사용 설명이 모두 준비됩니다)
+// ============================================================
+function initialSetup() {
+  ensureRosterSheet();
+  ensureArtworkSheet();
+  setupGuideSheet();
+}
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('🎨 10색상환 친구들')
+    .addItem('시트 처음 설정하기', 'initialSetup')
+    .addItem('사용 설명 다시 만들기', 'setupGuideSheet')
+    .addToUi();
+}
+
+// ============================================================
+// 사용 설명 탭 생성
+// ============================================================
+function setupGuideSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // 1) 기존 안내 탭(📋 사용법 / 사용 설명) 모두 삭제
+  const existingGuideSheets = LEGACY_GUIDE_NAMES
+    .map(n => ss.getSheetByName(n))
+    .filter(s => s !== null);
+
+  let guideSheet;
+  const allSheets = ss.getSheets();
+
+  if (existingGuideSheets.length > 0 && allSheets.length === existingGuideSheets.length) {
+    // 안내 탭만 존재해서 전부 지우면 시트가 0개가 되는 상황 방지용 임시 탭 생성
+    const tempName = '_temp_guide_' + new Date().getTime();
+    guideSheet = ss.insertSheet(tempName);
+    existingGuideSheets.forEach(s => ss.deleteSheet(s));
+    guideSheet.setName(SHEET_NAME_GUIDE);
+  } else {
+    existingGuideSheets.forEach(s => ss.deleteSheet(s));
+    guideSheet = ss.getSheetByName(SHEET_NAME_GUIDE);
+    if (guideSheet) {
+      ss.deleteSheet(guideSheet);
+    }
+    guideSheet = ss.insertSheet(SHEET_NAME_GUIDE);
+  }
+
+  guideSheet.activate();
+  ss.moveActiveSheet(1);
+  guideSheet.setTabColor('#6c5ce7');
+
+  writeGuideContent(guideSheet);
+}
+
+function writeGuideContent(sheet) {
+  const PRIMARY = '#6c5ce7';
+  const PRIMARY_LIGHT = '#eeeaff';
+  const SECTION_BG = '#f0eaff';
+  const TABLE_HEADER_BG = '#f5f5f5';
+
+  const rows = [];
+  const formatJobs = []; // { row, col, numCols, type }
+
+  function addRow(values) {
+    rows.push(values);
+    return rows.length; // 1-based row number just written
+  }
+
+  // 제목
+  const titleRow = addRow(['10색상환 친구들 — 시트 사용 설명', '', '']);
+  formatJobs.push({ row: titleRow, type: 'title' });
+
+  addRow(['', '', '']);
+
+  let sectionNo = 1;
+
+  // 사본을 만든 뒤 설정하기
+  const setupHeaderRow = addRow([sectionNo + '. 사본을 만든 뒤 설정하기', '', '']);
+  formatJobs.push({ row: setupHeaderRow, type: 'section' });
+  sectionNo++;
+
+  const setupTableHeaderRow = addRow(['단계', '내용', '']);
+  formatJobs.push({ row: setupTableHeaderRow, type: 'tableHeader', numCols: 2 });
+
+  let stepNo = 1;
+  const stepStartRow = setupTableHeaderRow + 1;
+
+  addRow(['①', '"명렬표" 탭에 있는 예시 이름(학생1, 학생2 …)을 지우고 우리 반 학생의 번호와 이름을 입력합니다.', '']);
+  stepNo++;
+  addRow(['②', '확장 프로그램 → Apps Script → 배포 → 새 배포 → 웹앱 → 액세스: 모든 사용자 → 배포', '']);
+  stepNo++;
+  addRow(['③', '처음 1회만 진행합니다. 본인이 만든 사본이므로 안전합니다.\n⑴ ‘승인 필요’에서 ‘권한 검토’를 선택합니다.\n⑵ 본인 계정을 선택합니다.\n⑶ ‘확인되지 않은 앱’ 화면에서 왼쪽 아래 ‘고급’을 누른 뒤 ‘(프로젝트 이름)(으)로 이동’을 선택합니다.\n⑷ 화면 맨 아래의 ‘허용’을 선택합니다.\n⑸ 배포된 URL을 확인합니다.\n※ ‘고급’이 보이지 않으면 창을 최대화합니다.\n※ 반드시 해당 시트의 사본을 만든 계정으로 진행합니다.', '']);
+  stepNo++;
+  addRow(['④', '배포 후 표시된 웹앱 주소(.../exec)를 복사해서, 앱 화면의 ⚙️ 설정에 붙여넣고 [연결하기]를 누릅니다. 그 아래에 학생용 입장 주소가 자동으로 만들어지면, 그 주소를 복사해서 학생들에게 링크로 공유합니다.', '']);
+  stepNo++;
+
+  const setupTableEndRow = setupTableHeaderRow + (stepNo - 1);
+  formatJobs.push({ row: setupTableHeaderRow, endRow: setupTableEndRow, type: 'tableBody' });
+
+  addRow(['', '', '']);
+
+  // 탭 목록
+  const tabListHeaderRow = addRow([sectionNo + '. 탭 목록', '', '']);
+  formatJobs.push({ row: tabListHeaderRow, type: 'section' });
+  sectionNo++;
+
+  const tabTableHeaderRow = addRow(['탭 이름', '역할', '주의사항']);
+  formatJobs.push({ row: tabTableHeaderRow, type: 'tableHeader', numCols: 3 });
+
+  addRow(['명렬표', '학생 번호·이름 관리, 각 학생의 최신 활동 표시', '예시로 채워진 "학생1~학생30" 이름을 지우고 실제 이름으로 바꿔서 사용하세요. 1행(번호/이름/최신 활동)은 머리글이므로 지우지 마세요. C열(최신 활동)은 앱이 자동으로 기록하니 직접 입력하지 마세요. 탭 이름을 변경하면 앱이 명단을 찾지 못하니 변경하지 마세요.']);
+  addRow(['작품제출', '학생이 그린 그림과 자기평가·친구댓글을 시간순으로 자동 기록', '앱이 자동으로 기록하는 탭입니다. 직접 값을 수정하거나 행을 삭제하면 학생 화면에 오류가 날 수 있습니다. 1행의 머리글과 열 순서를 바꾸지 마세요. 탭 이름을 변경하지 마세요.']);
+  addRow(['사용 설명', '앱 설정 방법과 각 탭의 사용 방법 안내', '탭 이름을 변경하거나 삭제하지 마세요.']);
+
+  formatJobs.push({ row: tabTableHeaderRow, endRow: tabTableHeaderRow + 3, type: 'tableBody', numCols: 3 });
+
+  addRow(['', '', '']);
+
+  // 시트 내용 수정 안내
+  const noteHeaderRow = addRow([sectionNo + '. 시트 내용 수정 안내', '', '']);
+  formatJobs.push({ row: noteHeaderRow, type: 'section' });
+  sectionNo++;
+  const noteBodyRow = addRow(['데이터나 설정을 변경할 때는 앱 화면이 아니라 해당 시트 탭에서 직접 수정하세요. 탭 이름은 코드와 연결되어 있으므로 삭제하거나 변경하지 마세요.', '', '']);
+
+  addRow(['', '', '']);
+
+  // 메뉴 사용법
+  const menuHeaderRow = addRow([sectionNo + '. 메뉴 사용법', '', '']);
+  formatJobs.push({ row: menuHeaderRow, type: 'section' });
+  sectionNo++;
+  const menuTableHeaderRow = addRow(['메뉴 항목', '하는 일', '실행 시점']);
+  formatJobs.push({ row: menuTableHeaderRow, type: 'tableHeader', numCols: 3 });
+  addRow(['시트 처음 설정하기', '명렬표·작품제출 탭과 사용 설명 탭을 만들어 줍니다.', '사본을 만든 뒤 처음 한 번 실행합니다.']);
+  addRow(['사용 설명 다시 만들기', '이 사용 설명 탭을 최신 내용으로 다시 만들어 줍니다.', '안내가 필요할 때 언제든 실행할 수 있습니다.']);
+  formatJobs.push({ row: menuTableHeaderRow, endRow: menuTableHeaderRow + 2, type: 'tableBody', numCols: 3 });
+
+  addRow(['', '', '']);
+
+  // 저작권 안내
+  const copyrightHeaderRow = addRow([sectionNo + '. 저작권 안내', '', '']);
+  formatJobs.push({ row: copyrightHeaderRow, type: 'section' });
+  sectionNo++;
+
+  const copyrightText =
+    '본 구글 시트 및 관련 자료(앱, 코드, 콘텐츠 포함)의 저작권은 GEG 화성(깊이 e끌림)에게 있습니다.\n\n' +
+    '1. 본 자료는 책을 구입한 자에 한해 이용이 허락됩니다(교사일 경우는 해당 학급, 학부모일 경우 자녀). 정상 경로로 구매하거나 배포받은 이용자라 하더라도 앱 코드의 무단 수정 및 2차 배포는 허용되지 않습니다.\n' +
+    '2. 다음 행위를 금합니다.\n' +
+    '   · 무단 복제·전송·배포·공유(타인에게 시트 링크 또는 사본 전달 포함)\n' +
+    '   · 영리 목적의 사용 또는 배포(학원에서의 사용 포함)\n' +
+    '   · 영리 목적의 재판매 또는 재배포\n' +
+    '   · 무단 수정·편집을 통한 2차적 저작물 작성\n' +
+    '3. 「저작권법」 제136조(벌칙) 제1항 제1호에 따라, 저작재산권을 복제·공연·공중송신·전시·배포·대여·2차적저작물 작성의 방법으로 침해한 자는 5년 이하의 징역 또는 5천만원 이하의 벌금에 처하거나 이를 병과할 수 있습니다.\n\n' +
+    'ⓒ 2026 GEG 화성(깊이 e끌림)';
+
+  const copyrightBodyRow = addRow([copyrightText, '', '']);
+  formatJobs.push({ row: copyrightBodyRow, type: 'copyright' });
+
+  // === 한 번에 입력 ===
+  sheet.getRange(1, 1, rows.length, 3).setValues(rows);
+
+  // === 서식 적용 ===
+  sheet.getRange(1, 1, rows.length, 3).setWrap(true).setVerticalAlignment('top');
+
+  formatJobs.forEach(job => {
+    if (job.type === 'title') {
+      const range = sheet.getRange(job.row, 1, 1, 3);
+      range.merge();
+      range.setFontSize(14).setFontWeight('bold').setFontColor(PRIMARY);
+    } else if (job.type === 'section') {
+      const range = sheet.getRange(job.row, 1, 1, 3);
+      range.merge();
+      range.setBackground(SECTION_BG).setFontWeight('bold');
+    } else if (job.type === 'tableHeader') {
+      const numCols = job.numCols || 3;
+      sheet.getRange(job.row, 1, 1, numCols).setBackground(TABLE_HEADER_BG).setFontWeight('bold');
+    } else if (job.type === 'tableBody') {
+      const numCols = job.numCols || 2;
+      const numRows = job.endRow - job.row + 1;
+      sheet.getRange(job.row, 1, numRows, numCols).setBorder(true, true, true, true, true, true);
+    } else if (job.type === 'copyright') {
+      const range = sheet.getRange(job.row, 1, 1, 3);
+      range.merge();
+      range.setBackground(PRIMARY_LIGHT);
+    }
+  });
+
+  sheet.setColumnWidth(1, 160);
+  sheet.setColumnWidth(2, 560);
+  sheet.setColumnWidth(3, 160);
+}
