@@ -625,6 +625,37 @@ header {
 
 .modal-card textarea:focus { outline: none; border-color: var(--primary); }
 
+/* 설정(⚙️) 버튼 및 모달 */
+.settings-link-btn {
+    display: block;
+    margin: 16px auto 0;
+    background: none;
+    border: none;
+    color: #636e72;
+    font-size: 0.85rem;
+    cursor: pointer;
+    text-decoration: underline;
+    transition: var(--transition);
+}
+
+.settings-link-btn:hover { color: var(--primary); }
+
+.settings-input {
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid #dfe6e9;
+    font-size: 0.95rem;
+    margin: 10px 0;
+}
+
+.settings-status { min-height: 20px; font-size: 0.9rem; color: var(--primary); }
+
+.student-link-area { margin-top: 16px; padding-top: 16px; border-top: 1px solid #eee; }
+
+.student-link-row { display: flex; gap: 8px; align-items: center; }
+.student-link-row .settings-input { margin: 0; }
+
 /* 루브릭 */
 .rubric-list { display: flex; flex-direction: column; gap: 14px; margin: 12px 0; text-align: left; }
 
@@ -723,6 +754,28 @@ header {
     </style>
 </head>
 <body>
+    <div id="settings-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <h2>⚙️ 우리 반 시트 연결하기</h2>
+            <p>구글 시트 웹앱 배포 주소(.../exec)를 붙여넣고 연결해주세요.</p>
+            <input type="text" id="settings-url-input" class="settings-input" placeholder="https://script.google.com/macros/s/ .../exec">
+            <button id="settings-connect-btn" class="primary-btn">연결하기</button>
+            <p id="settings-status" class="settings-status"></p>
+
+            <div id="student-link-area" class="student-link-area hidden">
+                <p><strong>학생용 입장 주소</strong> (이 링크를 학생들에게 공유하세요)</p>
+                <div class="student-link-row">
+                    <input type="text" id="student-link-input" class="settings-input" readonly>
+                    <button id="student-link-copy-btn" class="secondary-btn small-btn">복사</button>
+                </div>
+            </div>
+
+            <div class="modal-buttons">
+                <button id="settings-close-btn" class="secondary-btn">닫기</button>
+            </div>
+        </div>
+    </div>
+
     <div id="login-overlay" class="overlay">
         <div class="login-card glass-card">
             <h1>🎨 10색상환 친구들</h1>
@@ -731,6 +784,7 @@ header {
                 <option value="">선택하세요</option>
             </select>
             <button id="start-btn" class="primary-btn-large">탐험 시작하기!</button>
+            <button id="settings-btn" class="settings-link-btn hidden" title="설정">⚙️ 선생님 설정</button>
         </div>
     </div>
 
@@ -947,15 +1001,116 @@ header {
 
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     <script>
-// === google.script.run 래퍼 ===
+// === 실행 환경 감지 & 서버 호출 어댑터 ===
+// 이 화면은 (1) Apps Script 웹앱으로 열렸을 때와 (2) GitHub Pages 등 외부 정적
+// 호스팅으로 열렸을 때 둘 다에서 동작해야 합니다. Apps Script에서 열리면
+// HtmlService가 google.script.run을 자동으로 심어주므로 그것으로 직접 호출하고,
+// 그렇지 않으면(GitHub Pages 등) 선생님이 연결한 Apps Script 배포 주소(.../exec)로
+// JSONP(GET)/POST 요청을 보냅니다.
+function isAppsScriptRuntime() {
+    return typeof google !== 'undefined' && !!google.script && !!google.script.run;
+}
+
+// --- 외부 호스팅 시 사용할 연결 주소 관리 ---
+// 학생용 링크(#c=...)로 들어오면 그 주소를, 아니면 선생님이 저장해 둔 주소를 씁니다.
+const GAS_CONNECT_STORAGE_KEY = 'connectedAppUrl';
+var _connectedUrl = null;
+var _isStudentLink = false;
+
+function readUrlFromHash() {
+    var hash = window.location.hash || '';
+    var match = hash.match(/#c=(.+)/);
+    if (!match) return null;
+    try { return decodeURIComponent(match[1]); } catch (e) { return match[1]; }
+}
+
+function initConnection() {
+    var fromHash = readUrlFromHash();
+    if (fromHash) { _connectedUrl = fromHash; _isStudentLink = true; return; }
+    _connectedUrl = localStorage.getItem(GAS_CONNECT_STORAGE_KEY) || null;
+}
+
+function getConnectedUrl() { return _connectedUrl; }
+function saveConnectedUrl(url) { _connectedUrl = url; localStorage.setItem(GAS_CONNECT_STORAGE_KEY, url); }
+function buildStudentLink(execUrl) {
+    return window.location.origin + window.location.pathname + '#c=' + encodeURIComponent(execUrl);
+}
+
+if (!isAppsScriptRuntime()) initConnection();
+
+// --- JSONP (외부 호스팅에서 GET 계열 호출용, CORS 문제를 피합니다) ---
+var _jsonpCounter = 0;
+function jsonpRequest(url, params, timeoutMs) {
+    timeoutMs = timeoutMs || 10000;
+    return new Promise(function(resolve, reject) {
+        var callbackName = '_jsonp_cb_' + (_jsonpCounter++) + '_' + Date.now();
+        var qs = Object.keys(params).map(function(k) {
+            return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+        }).join('&');
+        var script = document.createElement('script');
+
+        function cleanup() {
+            delete window[callbackName];
+            if (script.parentNode) script.parentNode.removeChild(script);
+        }
+
+        script.onerror = function() { cleanup(); reject(new Error('연결 주소에 접속할 수 없어요.')); };
+        var timer = setTimeout(function() { cleanup(); reject(new Error('응답 시간이 초과되었어요.')); }, timeoutMs);
+        window[callbackName] = function(data) { clearTimeout(timer); cleanup(); resolve(data); };
+
+        script.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + qs + '&callback=' + callbackName;
+        document.body.appendChild(script);
+    });
+}
+
+function remoteGet(action) {
+    var url = getConnectedUrl();
+    if (!url) return Promise.reject(new Error('연결된 주소가 없습니다.'));
+    return jsonpRequest(url, { action: action });
+}
+
+// no-cors + text/plain으로 보내 preflight(OPTIONS)를 피합니다. Apps Script가 doOptions를
+// 지원하지 않기 때문에, 응답 없이(opaque) 전송만 확인합니다.
+function remotePost(action, payload) {
+    var url = getConnectedUrl();
+    if (!url) return Promise.reject(new Error('연결된 주소가 없습니다.'));
+    return fetch(url, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(Object.assign({ action: action }, payload))
+    }).then(function() { return { status: 'sent' }; });
+}
+
+// === 서버 호출 통합 진입점 (기존 gasRun 호출부는 그대로 둡니다) ===
 function gasRun(fnName) {
     var args = Array.prototype.slice.call(arguments, 1);
-    return new Promise(function(resolve, reject) {
-        var runner = google.script.run
-            .withSuccessHandler(resolve)
-            .withFailureHandler(reject);
-        runner[fnName].apply(runner, args);
-    });
+
+    if (isAppsScriptRuntime()) {
+        return new Promise(function(resolve, reject) {
+            var runner = google.script.run
+                .withSuccessHandler(resolve)
+                .withFailureHandler(reject);
+            runner[fnName].apply(runner, args);
+        });
+    }
+
+    switch (fnName) {
+        case 'getStudentNames':
+            return remoteGet('getStudentNames');
+        case 'getArtworks':
+            return remoteGet('getArtworks');
+        case 'saveArtwork':
+            return remotePost('saveArtwork', { data: args[0] });
+        case 'reuploadArtwork':
+            return remotePost('reuploadArtwork', { rowId: args[0], data: args[1] });
+        case 'addComment':
+            return remotePost('addComment', { rowId: args[0], comment: args[1] });
+        case 'saveFeedback':
+            return remotePost('saveFeedback', { rowId: args[0], feedback: args[1] });
+        default:
+            return Promise.reject(new Error('알 수 없는 호출: ' + fnName));
+    }
 }
 
 const colorData = [
@@ -1041,6 +1196,62 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     loadStudentNames();
+
+    // --- 연결 설정(⚙️) UI ---
+    // Apps Script 안에서 열렸을 때는 필요 없으므로 숨깁니다.
+    // 외부(GitHub Pages 등)에서 열렸고 학생용 링크(#c=...)가 아닐 때만 노출합니다.
+    (function setupConnectionSettings() {
+        var settingsBtn = document.getElementById('settings-btn');
+        if (!settingsBtn) return;
+        if (isAppsScriptRuntime() || _isStudentLink) return;
+
+        var settingsModal = document.getElementById('settings-modal');
+        var settingsUrlInput = document.getElementById('settings-url-input');
+        var settingsConnectBtn = document.getElementById('settings-connect-btn');
+        var settingsStatus = document.getElementById('settings-status');
+        var studentLinkArea = document.getElementById('student-link-area');
+        var studentLinkInput = document.getElementById('student-link-input');
+        var studentLinkCopyBtn = document.getElementById('student-link-copy-btn');
+        var settingsCloseBtn = document.getElementById('settings-close-btn');
+
+        settingsBtn.classList.remove('hidden');
+
+        var savedUrl = getConnectedUrl();
+        if (savedUrl) {
+            settingsUrlInput.value = savedUrl;
+            studentLinkInput.value = buildStudentLink(savedUrl);
+            studentLinkArea.classList.remove('hidden');
+        }
+
+        settingsBtn.onclick = function() { settingsModal.classList.remove('hidden'); };
+        settingsCloseBtn.onclick = function() { settingsModal.classList.add('hidden'); };
+
+        settingsConnectBtn.onclick = async function() {
+            var url = settingsUrlInput.value.trim();
+            if (!url) { settingsStatus.innerText = '주소를 입력해주세요.'; return; }
+            settingsStatus.innerText = '연결하는 중...';
+            var prevUrl = _connectedUrl;
+            _connectedUrl = url;
+            try {
+                await remoteGet('getStudentNames');
+                saveConnectedUrl(url);
+                settingsStatus.innerText = '연결되었어요! ✅';
+                studentLinkInput.value = buildStudentLink(url);
+                studentLinkArea.classList.remove('hidden');
+                loadStudentNames();
+            } catch (e) {
+                _connectedUrl = prevUrl;
+                settingsStatus.innerText = '연결에 실패했어요. 주소를 확인해주세요.';
+            }
+        };
+
+        studentLinkCopyBtn.onclick = function() {
+            studentLinkInput.select();
+            document.execCommand('copy');
+            studentLinkCopyBtn.innerText = '복사됨!';
+            setTimeout(function() { studentLinkCopyBtn.innerText = '복사'; }, 1500);
+        };
+    })();
 
     // --- 캔버스 입력 ---
     function getPos(e) {
